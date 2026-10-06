@@ -90,6 +90,25 @@ jobs:
           echo "TF_VAR_backend_image=$B" >> "$GITHUB_ENV"
           echo "frontend=$F backend=$B" >> "$GITHUB_STEP_SUMMARY"
 
+      # Terraform state lives in a local MinIO. Create it on first run so no
+      # manual bootstrap is needed (idempotent: skipped if already running).
+      - name: Ensure state backend (MinIO)
+        run: |
+          if ! docker inspect quiz-tfstate-minio >/dev/null 2>&1; then
+            docker run -d --name quiz-tfstate-minio --restart unless-stopped \
+              -p 127.0.0.1:9000:9000 -p 127.0.0.1:9001:9001 \
+              -v quiz-tfstate-minio:/data \
+              -e MINIO_ROOT_USER="$AWS_ACCESS_KEY_ID" -e MINIO_ROOT_PASSWORD="$AWS_SECRET_ACCESS_KEY" \
+              minio/minio:latest server /data --console-address :9001
+          else
+            docker start quiz-tfstate-minio >/dev/null
+          fi
+          for i in $(seq 1 30); do
+            curl -sf "${MINIO_ENDPOINT}/minio/health/ready" && break; sleep 1
+          done
+          docker run --rm --entrypoint /bin/sh minio/mc -c \
+            "mc alias set local ${MINIO_ENDPOINT} '$AWS_ACCESS_KEY_ID' '$AWS_SECRET_ACCESS_KEY' && mc mb --ignore-existing local/tfstate && mc version enable local/tfstate"
+
       - name: Terraform init / plan / apply
         working-directory: infra
         run: |

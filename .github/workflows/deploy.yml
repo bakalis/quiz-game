@@ -95,19 +95,23 @@ jobs:
       - name: Ensure state backend (MinIO)
         run: |
           if ! docker inspect quiz-tfstate-minio >/dev/null 2>&1; then
-            docker run -d --name quiz-tfstate-minio --restart unless-stopped \
+            docker run -d --name quiz-tfstate-minio --restart unless-stopped --user root \
               -p 127.0.0.1:9000:9000 -p 127.0.0.1:9001:9001 \
               -v quiz-tfstate-minio:/data \
               -e MINIO_ROOT_USER="$AWS_ACCESS_KEY_ID" -e MINIO_ROOT_PASSWORD="$AWS_SECRET_ACCESS_KEY" \
-              minio/minio:latest server /data --console-address :9001
+              chainguard/minio:latest server /data --console-address :9001
           else
             docker start quiz-tfstate-minio >/dev/null
           fi
           for i in $(seq 1 30); do
             curl -sf "${MINIO_ENDPOINT}/minio/health/ready" && break; sleep 1
           done
-          docker run --rm --entrypoint /bin/sh minio/mc -c \
-            "mc alias set local ${MINIO_ENDPOINT} '$AWS_ACCESS_KEY_ID' '$AWS_SECRET_ACCESS_KEY' && mc mb --ignore-existing local/tfstate && mc version enable local/tfstate"
+          # The MinIO project no longer publishes images to Docker Hub/Quay, so use
+          # Chainguard's builds. mc has no shell; it reads its alias from MC_HOST_local.
+          export MC_HOST_local="http://${AWS_ACCESS_KEY_ID}:${AWS_SECRET_ACCESS_KEY}@host.docker.internal:9000"
+          mc() { docker run --rm -e MC_HOST_local chainguard/minio-client:latest "$@"; }
+          mc mb --ignore-existing local/tfstate
+          mc version enable local/tfstate
 
       - name: Terraform init / plan / apply
         working-directory: infra

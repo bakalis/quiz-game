@@ -16,3 +16,6 @@ package-lock.json
 crash.log
 secrets.auto.tfvars
 *.hcl
+
+# Self-hosted runner state
+work/

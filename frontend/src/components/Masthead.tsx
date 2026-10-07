@@ -12,7 +12,7 @@ export function Masthead({ dateline = 'Daily Edition', compact = false }: Masthe
         <span>The Quiz Desk</span>
         <span>{dateline}</span>
       </div>
-      <h1 className="masthead__title">Unbelievably True?</h1>
+      <h1 className="masthead__title">Absurdly True?</h1>
     </header>
   );
 }

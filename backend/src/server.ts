@@ -9,7 +9,7 @@ const pool = new pg.Pool({ connectionString: config.databaseUrl });
 // Idle connections can drop (e.g. the database restarts). Without a listener this would crash the
 // process; the pool discards the broken client and opens a new one on the next query.
 pool.on('error', (error) => {
-  console.error('Idle database connection lost:', error.message);
+  console.error('Idle database connection lost: ', error.message);
 });
 
 await waitForDatabase(pool);

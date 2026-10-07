@@ -81,7 +81,7 @@ Score submissions are validated:
 
 Submissions are rate-limited to 10 per minute per client.
 
-## Configuration (backend) 
+## Configuration (backend)  
 
 | Variable       | Default | Description                                                  |
 | -------------- | ------- | ------------------------------------------------------------ |

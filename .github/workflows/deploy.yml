@@ -5,6 +5,8 @@ name: Deploy
 on:
   push:
     branches: [dev, test, main]
+  # Manual run (pick a branch): rebuilds both images for the current commit.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -19,16 +21,20 @@ env:
   IMAGE_PREFIX: ghcr.io/${{ github.repository }}
 
 jobs:
-  # Build once per SHA, only for the service whose files changed.
+  # Build a service only when its files changed (or no image exists yet for this
+  # branch). Every build is tagged with the commit SHA and with the branch name;
+  # the branch tag always points at the latest build, so an unchanged service
+  # can reuse it instead of being rebuilt.
   build:
     runs-on: ubuntu-latest
     outputs:
-      frontend_changed: ${{ steps.f.outputs.frontend }}
-      backend_changed: ${{ steps.f.outputs.backend }}
+      frontend_built: ${{ steps.need.outputs.frontend }}
+      backend_built: ${{ steps.need.outputs.backend }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
         id: f
+        if: github.event_name != 'workflow_dispatch'
         with:
           filters: |
             frontend: ['frontend/**']
@@ -41,22 +47,38 @@ jobs:
       # Multi-arch images: the pulling Docker daemon picks the matching variant.
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
+      - name: Decide what to build
+        id: need
+        run: |
+          for svc in frontend backend; do
+            changed=false
+            [ "${{ github.event_name }}" = "workflow_dispatch" ] && changed=true
+            if [ "$svc" = frontend ] && [ "${{ steps.f.outputs.frontend }}" = "true" ]; then changed=true; fi
+            if [ "$svc" = backend ] && [ "${{ steps.f.outputs.backend }}" = "true" ]; then changed=true; fi
+            # No image to reuse yet for this branch -> build.
+            docker buildx imagetools inspect "${IMAGE_PREFIX}/${svc}:${{ github.ref_name }}" >/dev/null 2>&1 || changed=true
+            echo "${svc}=${changed}" >> "$GITHUB_OUTPUT"
+          done
       - name: Build and push frontend
-        if: steps.f.outputs.frontend == 'true' || github.event.before == '0000000000000000000000000000000000000000'
+        if: steps.need.outputs.frontend == 'true'
         uses: docker/build-push-action@v6
         with:
           context: frontend
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: ${{ env.IMAGE_PREFIX }}/frontend:${{ github.sha }}
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/frontend:${{ github.sha }}
+            ${{ env.IMAGE_PREFIX }}/frontend:${{ github.ref_name }}
       - name: Build and push backend
-        if: steps.f.outputs.backend == 'true' || github.event.before == '0000000000000000000000000000000000000000'
+        if: steps.need.outputs.backend == 'true'
         uses: docker/build-push-action@v6
         with:
           context: backend
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: ${{ env.IMAGE_PREFIX }}/backend:${{ github.sha }}
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/backend:${{ github.sha }}
+            ${{ env.IMAGE_PREFIX }}/backend:${{ github.ref_name }}
 
   deploy:
     needs: build
@@ -84,13 +106,17 @@ jobs:
 
       # Independent promotion: each service keeps the image currently deployed
       # unless this push changed it. Current tags are read from the running
-      # containers (falling back to this SHA on first deploy).
+      # containers (falling back to the branch tag when nothing is running).
       - name: Resolve image tags
         run: |
           cur() { docker inspect --format '{{.Config.Image}}' "quiz-${TF_ENV}-$1" 2>/dev/null || true; }
           F=$(cur frontend); B=$(cur backend)
-          if [ "${{ needs.build.outputs.frontend_changed }}" = "true" ] || [ -z "$F" ]; then F="${IMAGE_PREFIX}/frontend:${{ github.sha }}"; fi
-          if [ "${{ needs.build.outputs.backend_changed }}" = "true" ] || [ -z "$B" ]; then B="${IMAGE_PREFIX}/backend:${{ github.sha }}"; fi
+          # Built in this run -> that SHA. Otherwise keep what is running; if
+          # nothing is running, reuse the latest build for this branch.
+          if [ "${{ needs.build.outputs.frontend_built }}" = "true" ]; then F="${IMAGE_PREFIX}/frontend:${{ github.sha }}"
+          elif [ -z "$F" ]; then F="${IMAGE_PREFIX}/frontend:${{ github.ref_name }}"; fi
+          if [ "${{ needs.build.outputs.backend_built }}" = "true" ]; then B="${IMAGE_PREFIX}/backend:${{ github.sha }}"
+          elif [ -z "$B" ]; then B="${IMAGE_PREFIX}/backend:${{ github.ref_name }}"; fi
           echo "TF_VAR_frontend_image=$F" >> "$GITHUB_ENV"
           echo "TF_VAR_backend_image=$B" >> "$GITHUB_ENV"
           echo "frontend=$F backend=$B" >> "$GITHUB_STEP_SUMMARY"

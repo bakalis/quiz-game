@@ -23,7 +23,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --paper: oklch(19% 0.012 70);
+    --paper: oklch(19% 0.013 70);
     --paper-deep: oklch(23.5% 0.014 70);
     --ink: oklch(92% 0.016 85);
     --ink-soft: oklch(72% 0.018 80);

@@ -370,6 +370,15 @@ in `scripts/next-version.sh`.
 
 ### Stop and tear down
 
+**From GitHub:** open **Actions → Teardown → Run workflow**, pick `dev`, `test`, `prod`
+or `all`, and run it. It runs `terraform destroy` on your runner, one environment at a
+time, and `prod` still waits for its required reviewer. Tick *Also remove the MinIO state
+backend* (only with `all`) to remove MinIO and the state as well. The workflow must
+exist on the default branch (`main`) to appear in the Actions tab. Like the manual
+steps below, it deletes the database volumes and their data.
+
+**By hand:**
+
 Destroy each environment **while MinIO is still running** (it holds the state). From
 the host, Terraform reaches MinIO at `127.0.0.1:9000`:
 

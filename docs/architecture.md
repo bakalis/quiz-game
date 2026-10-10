@@ -8,9 +8,9 @@ why a piece exists or whether you can change it.
 ## The goal
 
 The app is small: a React frontend served by nginx, a Node API, and a Postgres
-database. The interesting part is the delivery pipeline around it. The aim was to
+database. The aim was to
 have a realistic dev → test → prod flow with automated checks, approvals and
-releases, but running entirely on one laptop with no cloud account. Many of the
+releases, but running entirely on one machine. Many of the
 choices below are about getting real-world habits without real-world infrastructure.
 
 ## The big picture
@@ -46,14 +46,16 @@ have defaults in `infra/variables.tf`).
 
 ### Branches map to environments
 
-`dev`, `test` and `main` each deploy to their own environment, and moving code
-forward means opening a pull request from one branch into the next. It is easy to
-explain, easy to see in the GitHub UI, and it gives each stage a natural place to
-hang rules: `prod` needs a human to approve, `test` runs an extra integration test.
+`dev`, `test` and `main` each deploy to their own environment: `dev` to dev, `test` to
+test and `main` to prod. The rule is simple: the code in a branch is what runs in its
+environment. Every push to a branch redeploys the matching environment, so you can
+always tell what is running by looking at the branch.
 
-The honest downside is that this is not how trunk-based teams work, and the
-branches can drift apart. For a small project where the point is to show a
-promotion flow, the clarity is worth more than the purity.
+This mapping also gives each stage a natural place to hang rules: `prod` needs a human
+to approve, `test` runs an extra integration test. The trade-off is that the
+environments are only as consistent as their branches. If the branches differ, the
+environments differ, so how code moves between the branches has to be agreed by the
+team; the pipeline does not enforce it.
 
 ### Terraform and Docker instead of a script
 
@@ -69,17 +71,19 @@ module creates each of them. Environments differ only through a small `.tfvars` 
 environment means adding one small file, not copying a directory. This was a
 deliberate answer to the usual "dev/test/prod folders that slowly diverge" problem.
 
-### State in a local MinIO
+### State in MinIO
 
-Terraform has to store its state somewhere. A state file on disk would work for one
-person but not for a CI job running in a container, and a cloud bucket would defeat
-the "no cloud" goal. MinIO speaks the S3 protocol, so Terraform's normal S3 backend
-works against it, including state locking. Each environment gets its own state key,
-so a problem in `dev` cannot corrupt `prod`'s state.
+Terraform has to store its state somewhere. A state file on disk only works from one
+machine, and it would not be available to a CI job running in a container. MinIO is a
+service that speaks the S3 protocol, so the state does not depend on the storage of a
+single machine: any environment, on any machine, can reach it over the network and
+read and write the same state. Terraform's normal S3 backend works against it,
+including state locking, which stops two deployments from changing the same
+environment at once. Each environment gets its own state key, so a problem in `dev`
+cannot corrupt the state of `prod`.
 
-The deploy workflow starts MinIO itself the first time it runs, so there is no
-manual bootstrap step to forget. The trade-off is that this MinIO is a single local
-container: if its volume is lost, Terraform forgets what it deployed.
+The deploy workflow starts MinIO itself the first time it runs, so there is no manual
+bootstrap step to forget.
 
 ### GitHub Actions with a self-hosted runner
 
@@ -189,8 +193,8 @@ Being clear about the limits matters more than hiding them:
   container, so there is a short gap, not a zero-downtime rollout.
 - **No TLS, load balancing or managed database.** Postgres is a container with a
   volume, and nothing backs it up.
-- **The state store is local and unbacked-up.** Losing the MinIO volume means
-  Terraform loses track of the environments (you would remove containers by hand).
+- **One MinIO instance.** The state is not tied to the machine that runs the
+  environments, but it is still a single service without backups or redundancy.
 - **The runner is powerful.** It is root-equivalent on the host, and the pipeline's
   safety rests on the three branches being protected.
 - **Tested on macOS and Windows with Docker Desktop.** Linux needs a few adjustments

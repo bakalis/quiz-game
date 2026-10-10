@@ -124,7 +124,8 @@ Runs on pull requests into `dev`, `test` and `main`, only for the parts that cha
 
 - Manual **Teardown** workflow: pick one environment or `all` and shut it down with
   `terraform destroy` on the runner. `prod` still needs approval, it shares the deploy
-  queue so it never overlaps a deploy, and removing MinIO and its state is optional.
+  queue so it never overlaps a deploy, the database volumes are kept unless you opt in
+  to deleting them, and removing MinIO and its state is optional.
 - Teardown by hand with `terraform destroy` per environment, then optional removal of
   MinIO and the runner.
 - Adding an environment: one `.tfvars` file, a workflow mapping, a GitHub Environment

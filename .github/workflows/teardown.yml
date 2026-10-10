@@ -1,7 +1,8 @@
 name: Teardown
 
 # Manually shuts down an environment (or all of them) with terraform destroy.
-# This deletes the containers, the network and the database volume (the data).
+# By default it removes the containers and the network but KEEPS the database
+# volume (the data); tick delete_data to remove the volume as well.
 # Run it from Actions -> Teardown -> Run workflow. prod still asks for approval
 # through its GitHub Environment.
 on:
@@ -12,8 +13,12 @@ on:
         type: choice
         options: [dev, test, prod, all]
         default: dev
+      delete_data:
+        description: Also delete the database volumes (all data is lost)
+        type: boolean
+        default: false
       remove_state_backend:
-        description: "Also remove the MinIO state backend and its data (only with 'all')"
+        description: "Also remove the MinIO state backend and its data (only with 'all'; the Terraform state of kept volumes is lost)"
         type: boolean
         default: false
 
@@ -82,13 +87,22 @@ jobs:
           terraform init -input=false -reconfigure \
             -backend-config="key=${TF_ENV}/terraform.tfstate" \
             -backend-config="endpoints={s3=\"${MINIO_ENDPOINT}\"}"
-          terraform destroy -input=false -auto-approve -var-file="envs/${TF_ENV}.tfvars"
+          if [ "${{ inputs.delete_data }}" = "true" ]; then
+            terraform destroy -input=false -auto-approve -var-file="envs/${TF_ENV}.tfvars"
+          else
+            # The volume is a dependency of the db container, so targeting the
+            # containers and the network leaves the volume (and its state) in place.
+            terraform destroy -input=false -auto-approve -var-file="envs/${TF_ENV}.tfvars" \
+              -target=module.service -target=docker_network.this
+          fi
 
       - name: Remaining containers
         if: always()
         run: |
           echo "### ${TF_ENV}" >> "$GITHUB_STEP_SUMMARY"
           left=$(docker ps -a --filter "name=quiz-${TF_ENV}-" --format '{{.Names}}')
+          vol=$(docker volume ls --filter "name=quiz-${TF_ENV}-db-data" --format '{{.Name}}')
+          echo "Database volume: ${vol:-deleted}" | tee -a "$GITHUB_STEP_SUMMARY"
           if [ -n "$left" ]; then echo "Still present: $left" | tee -a "$GITHUB_STEP_SUMMARY"; else echo "No quiz-${TF_ENV}-* containers left." | tee -a "$GITHUB_STEP_SUMMARY"; fi
 
   remove-state-backend:

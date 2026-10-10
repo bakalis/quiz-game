@@ -150,11 +150,8 @@ Three environments run locally in Docker, provisioned by Terraform and deployed 
 | test | `test` | http://localhost:8082 | auto + integration test |
 | prod | `main` | http://localhost:8080 | manual approval         |
 
-### One-time setup
-1. Install Docker and Terraform >= 1.10.
-2. Start the state backend: see [infra/bootstrap/README.md](infra/bootstrap/README.md).
-3. GitHub (manual): create Environments `dev`, `test`, `prod` (prod: required reviewers); add secrets `TFSTATE_ACCESS_KEY`, `TFSTATE_SECRET_KEY`, `DB_PASSWORD` per environment; enable branch protection on `dev`/`test`/`main` requiring the `ci-ok` check; enable Dependabot, secret scanning and code scanning.
-4. Register a self-hosted runner on this machine with label `quiz-deploy` (Settings → Actions → Runners). It has Docker socket access, so only protected-branch pushes run on it; disable fork PR workflows.
+### Setup
+Branches, GitHub environments and secrets, the self-hosted runner, GHCR visibility and troubleshooting are all covered step by step in **[infra/README.md](infra/README.md)**.
 
 ### Deploy manually (without CI)
 ```bash
@@ -173,19 +170,3 @@ Biome lint, typecheck, coverage, Trivy image scan, CodeQL, gitleaks, `npm audit`
 
 ### Terraform layout
 One root configuration in `infra/` serves every environment. Per-environment values live in `infra/envs/<env>.tfvars` (name and host port); the state key is passed at `init` (`-backend-config="key=<env>/terraform.tfstate"`). Adding an environment = one new `.tfvars` file. The three containers are defined once in `locals.services` and created by a single `for_each` over `infra/modules/service`.
-## Local deployment runner
-
-`infra/runner/` runs a self-hosted GitHub Actions runner in Docker, so
-workflows with `runs-on: self-hosted` can deploy the stack on this machine.
-
-```bash
-cp infra/runner/.env.example infra/runner/.env   # fill in token + RUNNER_WORK_DIR
-docker compose -f infra/runner/docker-compose.yml up -d --build
-docker compose -f infra/runner/docker-compose.yml logs -f github-runner
-```
-
-`RUNNER_WORK_DIR` must be an absolute host path (it is mounted at the same
-path in the container so `docker compose` bind mounts resolve on the host).
-On macOS it must be in a path Docker Desktop shares (e.g. under `/Users`).
-The registration token expires after ~1 hour; if it does, update `.env` and
-run `up -d --force-recreate github-runner`.

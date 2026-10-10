@@ -1,11 +1,9 @@
 name: Deploy
 
 # Runs on the self-hosted runner (it has access to the local Docker daemon and MinIO).
-# Only ever triggered by pushes to protected branches, never by fork PRs.
 on:
   push:
     branches: [dev, test, main]
-  # Manual run (pick a branch): rebuilds both images for the current commit.
   workflow_dispatch:
 
 permissions:
@@ -21,32 +19,28 @@ env:
   IMAGE_PREFIX: ghcr.io/${{ github.repository }}
 
 jobs:
-  # Build a service only when its files changed (or no image exists yet for this
-  # branch). Every build is tagged with the commit SHA and with the branch name;
-  # the branch tag always points at the latest build, so an unchanged service
-  # can reuse it instead of being rebuilt.
   build:
     runs-on: ubuntu-latest
     outputs:
       frontend_built: ${{ steps.need.outputs.frontend }}
       backend_built: ${{ steps.need.outputs.backend }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
+      - uses: actions/checkout@v5
+      - uses: dorny/paths-filter@v4
         id: f
         if: github.event_name != 'workflow_dispatch'
         with:
           filters: |
             frontend: ['frontend/**']
             backend: ['backend/**']
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       # Multi-arch images: the pulling Docker daemon picks the matching variant.
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
       - name: Decide what to build
         id: need
         run: |
@@ -55,13 +49,12 @@ jobs:
             [ "${{ github.event_name }}" = "workflow_dispatch" ] && changed=true
             if [ "$svc" = frontend ] && [ "${{ steps.f.outputs.frontend }}" = "true" ]; then changed=true; fi
             if [ "$svc" = backend ] && [ "${{ steps.f.outputs.backend }}" = "true" ]; then changed=true; fi
-            # No image to reuse yet for this branch -> build.
             docker buildx imagetools inspect "${IMAGE_PREFIX}/${svc}:${{ github.ref_name }}" >/dev/null 2>&1 || changed=true
             echo "${svc}=${changed}" >> "$GITHUB_OUTPUT"
           done
       - name: Build and push frontend
         if: steps.need.outputs.frontend == 'true'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: frontend
           push: true
@@ -71,7 +64,7 @@ jobs:
             ${{ env.IMAGE_PREFIX }}/frontend:${{ github.ref_name }}
       - name: Build and push backend
         if: steps.need.outputs.backend == 'true'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: backend
           push: true
@@ -83,30 +76,24 @@ jobs:
   deploy:
     needs: build
     runs-on: [self-hosted, quiz-deploy]
-    # GitHub Environment named after the branch; `prod` has a required reviewer.
     environment: ${{ github.ref_name == 'main' && 'prod' || github.ref_name }}
     env:
       TF_ENV: ${{ github.ref_name == 'main' && 'prod' || github.ref_name }}
-      # The runner is a container: the host's published ports are reached via
-      # host.docker.internal, not 127.0.0.1.
       MINIO_ENDPOINT: http://host.docker.internal:9000
       HOST_ALIAS: host.docker.internal
       AWS_ACCESS_KEY_ID: ${{ secrets.TFSTATE_ACCESS_KEY }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.TFSTATE_SECRET_KEY }}
       TF_VAR_db_password: ${{ secrets.DB_PASSWORD }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
+      - uses: actions/checkout@v5
+      - uses: hashicorp/setup-terraform@v4
         with: { terraform_version: 1.12.2 }
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Independent promotion: each service keeps the image currently deployed
-      # unless this push changed it. Current tags are read from the running
-      # containers (falling back to the branch tag when nothing is running).
       - name: Resolve image tags
         run: |
           cur() { docker inspect --format '{{.Config.Image}}' "quiz-${TF_ENV}-$1" 2>/dev/null || true; }
@@ -121,8 +108,6 @@ jobs:
           echo "TF_VAR_backend_image=$B" >> "$GITHUB_ENV"
           echo "frontend=$F backend=$B" >> "$GITHUB_STEP_SUMMARY"
 
-      # Terraform state lives in a local MinIO. Create it on first run so no
-      # manual bootstrap is needed (idempotent: skipped if already running).
       - name: Ensure state backend (MinIO)
         run: |
           if ! docker inspect quiz-tfstate-minio >/dev/null 2>&1; then
@@ -137,8 +122,6 @@ jobs:
           for i in $(seq 1 30); do
             curl -sf "${MINIO_ENDPOINT}/minio/health/ready" && break; sleep 1
           done
-          # The MinIO project no longer publishes images to Docker Hub/Quay, so use
-          # Chainguard's builds. mc has no shell; it reads its alias from MC_HOST_local.
           export MC_HOST_local="http://${AWS_ACCESS_KEY_ID}:${AWS_SECRET_ACCESS_KEY}@host.docker.internal:9000"
           mc() { docker run --rm -e MC_HOST_local chainguard/minio-client:latest "$@"; }
           mc mb --ignore-existing local/tfstate

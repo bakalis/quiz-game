@@ -1,5 +1,4 @@
-# One-time stack: a local MinIO (S3-compatible) used as the Terraform state
-# backend for dev/test/prod. Itself uses local state (chicken-and-egg).
+# MinIO used as the Terraform state backend for dev/test/prod.
 terraform {
   required_providers {
     docker = {
@@ -57,7 +56,7 @@ resource "docker_container" "minio" {
   }
 }
 
-# Create the bucket once MinIO is up (needs the mc CLI image).
+# Create the bucket once MinIO is up.
 resource "terraform_data" "bucket" {
   depends_on = [docker_container.minio]
 

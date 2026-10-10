@@ -16,6 +16,10 @@ RUN npm ci --omit=dev && npm cache clean --force
 # ---- Runtime: production dependencies + compiled output only ----
 FROM node:22-alpine
 ENV NODE_ENV=production
+# The runtime only needs `node`; drop the npm/corepack bundled in the base image
+# (their vendored packages are the source of most image CVEs).
+RUN apk upgrade --no-cache \
+    && rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY --from=deps /app/node_modules ./node_modules

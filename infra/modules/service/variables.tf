@@ -55,3 +55,33 @@ variable "volume_path" {
 variable "healthcheck_cmd" {
   type = list(string)
 }
+
+variable "restart" {
+  type    = string
+  default = "unless-stopped"
+}
+
+variable "healthcheck_interval" {
+  type    = string
+  default = "5s"
+}
+
+variable "healthcheck_timeout" {
+  type    = string
+  default = "3s"
+}
+
+variable "healthcheck_retries" {
+  type    = number
+  default = 10
+}
+
+variable "healthcheck_start_period" {
+  type    = string
+  default = "10s"
+}
+
+variable "wait_timeout" {
+  type    = number
+  default = 120
+}

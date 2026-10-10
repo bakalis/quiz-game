@@ -1,3 +1,3 @@
 output "frontend_url" {
-  value = "http://localhost:${var.frontend_host_port}"
+  value = "http://${var.public_host}:${var.frontend_host_port}"
 }

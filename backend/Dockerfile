@@ -22,7 +22,8 @@ RUN apk upgrade --no-cache \
     && rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 WORKDIR /app
 COPY package.json package-lock.json ./
-COPY --from=deps /app/node_modules ./node_modules
+RUN npm ci --omit=dev && npm cache clean --force \
+ && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 COPY --from=build /app/dist ./dist
 COPY migrations ./migrations
 USER node

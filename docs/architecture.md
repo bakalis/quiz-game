@@ -39,7 +39,8 @@ choices below are about getting real-world habits without real-world infrastruct
 Everything on the bottom half exists three times, once per environment, side by
 side on the same Docker daemon: `quiz-dev-*`, `quiz-test-*` and `quiz-prod-*`.
 They differ only in their name and the host port the frontend is published on
-(8081, 8082 and 8080).
+(8081, 8082 and 8080 by default, set in each `.tfvars` file; the other tunable values
+have defaults in `infra/variables.tf`).
 
 ## Choices and the reasons behind them
 
@@ -192,8 +193,8 @@ Being clear about the limits matters more than hiding them:
   Terraform loses track of the environments (you would remove containers by hand).
 - **The runner is powerful.** It is root-equivalent on the host, and the pipeline's
   safety rests on the three branches being protected.
-- **Tested on macOS with Docker Desktop.** Linux needs a few adjustments and Windows is
-  untested; both are covered in the deployment guide.
+- **Tested on macOS and Windows with Docker Desktop.** Linux needs a few adjustments
+  and is untested; both are covered in the deployment guide.
 
 ## If you wanted to take it further
 

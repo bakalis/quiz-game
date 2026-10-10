@@ -5,9 +5,6 @@ This guide takes you from a fresh fork to three running environments
 steps in order. Each step says what to do and why. For the design rationale see
 [../docs/architecture.md](../docs/architecture.md).
 
-To just run the app locally without any CI, see the root [README](../README.md)
-(`docker compose up --build`).
-
 ## Contents
 
 1. [How it works](#how-it-works)
@@ -49,6 +46,13 @@ push to main
 
 Each environment gets its own Docker network, three containers
 (`quiz-<env>-frontend`, `-backend`, `-db`) and a `quiz-<env>-db-data` volume.
+
+The ports in the table above (8081, 8082, 8080) are defaults, set as
+`frontend_host_port` in `infra/envs/<env>.tfvars`. Every other tunable value (container
+ports, database name and user, image names, health-check paths, bind address, restart
+policy, timeouts) is a variable in `infra/variables.tf` with a default, and can be
+overridden in the same `.tfvars` files. The MinIO ports (9000/9001) are not Terraform
+variables: they are set in the "Ensure state backend" step of `deploy.yml`.
 Terraform state for all environments lives in one MinIO container
 (`quiz-tfstate-minio`, ports 9000/9001) under `tfstate/<env>/terraform.tfstate`.
 
@@ -78,13 +82,14 @@ Everything you must do, with its purpose. Details are in the steps below.
 
 On the machine that will host everything:
 
-- **macOS with Docker Desktop**, running. This is the tested setup.
-  Linux needs changes (see [Linux](#linux)). Windows is untested (see [Windows](#windows)).
-- Free host ports: **8080, 8081, 8082** (the three apps) and **9000, 9001** (MinIO).
+- **macOS or Windows with Docker Desktop**, running. These are the tested setups.
+  See [Windows](#windows) for two things to watch. Linux needs changes (see [Linux](#linux)).
+- Free host ports: by default **8080, 8081, 8082** (the three apps, changeable in
+  `infra/envs/*.tfvars`) and **9000, 9001** (MinIO, set in `deploy.yml`).
 - `git`.
 - A GitHub account. Admin access to the fork's settings.
-- Optional, for running things by hand: Terraform >= 1.10 (`brew install terraform`).
-  CD installs its own.
+- Optional, only for tearing down (see [Stop and tear down](#stop-and-tear-down)):
+  Terraform >= 1.10 (`brew install terraform`). The pipeline installs its own.
 - Internet access (GitHub, GHCR, Docker Hub, Terraform provider registry).
 
 ## Step 1: Fork and clone
@@ -363,28 +368,10 @@ in `scripts/next-version.sh`.
 
 ## Operations
 
-### Run Terraform by hand
-
-For debugging. MinIO must be running (the first deploy creates it).
-
-```bash
-cd infra
-export AWS_ACCESS_KEY_ID=tfstate
-export AWS_SECRET_ACCESS_KEY=<TFSTATE_SECRET_KEY>
-terraform init -reconfigure -backend-config="key=dev/terraform.tfstate"
-terraform plan -var-file=envs/dev.tfvars \
-  -var db_password=<password> \
-  -var frontend_image=ghcr.io/<you>/<repo>/frontend:<tag> \
-  -var backend_image=ghcr.io/<you>/<repo>/backend:<tag>
-```
-
-From the host, `main.tf` reaches MinIO at `127.0.0.1:9000`. In CI the workflow
-overrides the endpoint to `host.docker.internal:9000` because the runner is itself a
-container.
-
 ### Stop and tear down
 
-Destroy each environment **while MinIO is still running** (it holds the state):
+Destroy each environment **while MinIO is still running** (it holds the state). From
+the host, Terraform reaches MinIO at `127.0.0.1:9000`:
 
 ```bash
 cd infra
@@ -409,20 +396,36 @@ To pause without destroying: `docker stop quiz-<env>-frontend quiz-<env>-backend
 
 ### Add another environment
 
-1. Add `infra/envs/<name>.tfvars` with a unique `environment` and `frontend_host_port`.
+1. Add `infra/envs/<name>.tfvars` with a unique `environment` and `frontend_host_port`, plus any other
+   variable from `infra/variables.tf` you want to override.
 2. Add the branch to the `branches` lists in `deploy.yml`, `ci.yml` and
    `security.yml`, create a matching GitHub Environment, and create the branch.
    Any branch other than `main` uses its own name as environment; `main` is `prod`.
 
 ### Windows
 
-Untested. The scripts are not the problem (they run inside Linux containers), but two
-things can break it. First, the runner needs `RUNNER_WORK_DIR` to be the same path on
-the host and in the container; with Docker Desktop on Windows, use WSL2 and keep both
-the clone and the work directory inside the WSL filesystem (e.g. `/home/<you>/...`),
-and check that a deploy's bind mounts resolve. Second, Git must not convert line
-endings: the repo ships a `.gitattributes` that forces LF for scripts, Dockerfiles and
-workflows, so clone it fresh (or run `git add --renormalize .`) after enabling it.
+Tested on Windows with Docker Desktop; the full flow works. Two things are worth knowing:
+
+> **Warning: the scripts must be marked executable in Git.** Windows has no executable
+> bit, so if you *copy* the files into a new repository (instead of forking or cloning
+> it), Git records `scripts/*.sh` as non-executable and they fail with a permission
+> error on the runner. Fork or clone to keep the flag. If you already copied them, fix
+> it with:
+>
+> ```bash
+> git update-index --chmod=+x scripts/*.sh infra/runner/entrypoint.sh
+> git commit -m "make scripts executable" && git push
+> ```
+>
+> The workflows call the scripts through `bash` as a safeguard, but keeping the flag
+> set is still correct.
+
+Line endings: Git must not convert them to CRLF, which breaks scripts inside the Linux
+containers. The repo ships a `.gitattributes` that forces LF for scripts, Dockerfiles,
+workflows and Terraform files; if you cloned before it existed, run
+`git add --renormalize .`. Also keep `RUNNER_WORK_DIR` a path that resolves the same
+on the host and in the container (see [Start the runner](#step-5-start-the-self-hosted-runner)); if
+bind mounts in a deploy look empty, this is the first thing to check.
 
 ### Linux
 

@@ -150,20 +150,10 @@ Three environments run locally in Docker, provisioned by Terraform and deployed 
 | test | `test` | http://localhost:8082 | auto + integration test |
 | prod | `main` | http://localhost:8080 | manual approval         |
 
+The ports are defaults, declared as `frontend_host_port` in `infra/envs/<env>.tfvars`; change them there (other tunables are in `infra/variables.tf`).
+
 ### Setup
 Branches, GitHub environments and secrets, the self-hosted runner, GHCR visibility and troubleshooting are all covered step by step in **[infra/README.md](infra/README.md)**.
-
-### Deploy manually (without CI)
-```bash
-export AWS_ACCESS_KEY_ID=tfstate AWS_SECRET_ACCESS_KEY=<minio-password>
-export TF_VAR_db_password=<password>
-cd infra
-terraform init -reconfigure -backend-config="key=dev/terraform.tfstate"
-terraform apply -var-file=envs/dev.tfvars -var frontend_image=ghcr.io/<owner>/quiz-game/frontend:<sha> \
-                -var backend_image=ghcr.io/<owner>/quiz-game/backend:<sha>
-../scripts/smoke-test.sh http://localhost:8081
-```
-Frontend and backend images are separate variables, so either can be promoted independently. Rollback = apply again with the previous tag.
 
 ### Quality & security automation
 Biome lint, typecheck, coverage, Trivy image scan, CodeQL, gitleaks, `npm audit`, tflint, Checkov, Dependabot.

@@ -68,29 +68,34 @@ A complete list of what the delivery setup does. For how to set it up see
 
 ## Continuous integration
 
-Runs on pull requests into `dev`, `test` and `main`, only for the parts that changed:
+Runs on pull requests into `dev`, `test` and `main`, only for the parts that changed
+(path filters; a change to `ci.yml` runs everything):
 
-- Frontend: Biome lint, TypeScript type check, unit tests with coverage, production
+- Frontend: oxlint (warnings fail the build), TypeScript type check, unit tests,
+  production build.
+- Backend: oxlint, type check, unit tests against a real Postgres service container,
   build.
-- Backend: Biome lint, type check, unit tests with coverage, build.
+- Migration compatibility, when migrations change: released migrations must not be
+  modified, renamed or deleted; the pull request's migrations are applied to a fresh
+  database and the previous release's tests are run against the new schema.
+- Secret scan: gitleaks over the commits of the pull request.
+- Dependency review: fails on newly introduced dependencies with high severity
+  vulnerabilities.
 - Docker image build for each changed service, followed by a Trivy scan that fails on
   HIGH or CRITICAL vulnerabilities (unfixed ones ignored).
-- Terraform: format check, validate, tflint and Checkov.
 - A single aggregate check, `ci-ok`, suitable as the one required status check.
-- Newer pushes to the same pull request cancel the run in progress.
 
 ## Security
 
 - CodeQL static analysis for JavaScript and TypeScript (requires GitHub code scanning).
-- Secret scanning with gitleaks.
+- Full-repository secret scanning with gitleaks (Security workflow).
 - `npm audit` for dependency vulnerabilities.
-- Trivy image scanning in CI.
-- Checkov scanning of the Terraform code.
-- Runs on pushes, pull requests and a weekly schedule, since new vulnerabilities appear
-  without code changes. In-progress runs of the same event are cancelled when a newer
-  one starts.
-- Dependabot weekly updates for npm (both apps), Docker base images, Terraform
-  providers and GitHub Actions, opened against `dev`.
+- Trivy image scanning and dependency review in CI.
+- Security workflow runs on pushes, pull requests and a weekly schedule, since new
+  vulnerabilities appear without code changes. In-progress runs of the same event are
+  cancelled when a newer one starts.
+- Dependabot weekly updates for npm (both apps, minor and patch updates grouped), Docker
+  base images and GitHub Actions, opened against `dev`.
 - Secrets (MinIO credentials, database password) kept in GitHub Secrets, passed as
   environment variables for a single job and never baked into images.
 - The privileged self-hosted runner is used only by the deploy job, which runs on

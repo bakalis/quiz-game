@@ -156,7 +156,7 @@ The ports are defaults, declared as `frontend_host_port` in `infra/envs/<env>.tf
 Branches, GitHub environments and secrets, the self-hosted runner, GHCR visibility and troubleshooting are all covered step by step in **[infra/README.md](infra/README.md)**.
 
 ### Quality & security automation
-Biome lint, typecheck, coverage, Trivy image scan, CodeQL, gitleaks, `npm audit`, tflint, Checkov, Dependabot.
+oxlint, typecheck, tests, build, migration compatibility check, Trivy image scan, gitleaks, dependency review, CodeQL, `npm audit`, Dependabot.
 
 ### Terraform layout
 One root configuration in `infra/` serves every environment. Per-environment values live in `infra/envs/<env>.tfvars` (name and host port); the state key is passed at `init` (`-backend-config="key=<env>/terraform.tfstate"`). Adding an environment = one new `.tfvars` file. The three containers are defined once in `locals.services` and created by a single `for_each` over `infra/modules/service`.

@@ -12,7 +12,6 @@
     "typecheck": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "biome lint .",
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {

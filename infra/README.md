@@ -24,7 +24,7 @@ steps in order. Each step says what to do and why. For the design rationale see
 ## How it works
 
 ```
-pull request ──► ci.yml            lint, typecheck, tests, build, Trivy image scan, Terraform checks
+pull request ──► ci.yml            lint, typecheck, tests, build, migration check, secrets, dependency review, Trivy
               ├► security.yml      CodeQL, gitleaks, npm audit
               └► release-check.yml (PRs into main) is a release label set?
 
@@ -189,8 +189,7 @@ Settings → Actions → General:
 
 - **Actions permissions**: allow GitHub-created actions and the third-party ones
   used here (`dorny/paths-filter`, `docker/*`, `hashicorp/setup-terraform`,
-  `aquasecurity/trivy-action`, `gitleaks/gitleaks-action`,
-  `terraform-linters/setup-tflint`, `bridgecrewio/checkov-action`).
+  `gitleaks/gitleaks-action`).
 - **Fork pull request workflows from outside collaborators**: select
   **Require approval for all outside collaborators**.
 
@@ -220,11 +219,14 @@ Settings → Branches → add a rule for each of `dev`, `test` and `main`:
   Make the repo public or remove the `codeql` job from `security.yml`.
 - If **Default setup** for code scanning is on (Settings → Advanced Security),
   turn it off. It conflicts with the workflow.
+- The `dependencies` job in `ci.yml` (dependency review) needs the **Dependency
+  graph** enabled (Settings → Advanced Security). On a private repo it also needs
+  GitHub Advanced Security; without it, remove that job (and from `ci-ok`'s `needs`).
 
 ### 4.7 Dependabot
 
-*Purpose: weekly pull requests that update npm packages, base images, Terraform
-providers and GitHub Actions.*
+*Purpose: weekly pull requests that update npm packages, base images and GitHub
+Actions. Terraform providers are not covered.*
 
 Nothing to configure beyond `.github/dependabot.yml`, which is already in the repo
 and targets the `dev` branch. If Dependabot is off, enable it under Settings →
@@ -462,8 +464,6 @@ which `host-gateway` does not reach, so the MinIO port binding would need to cha
 | Trivy fails the build with HIGH/CRITICAL findings | Base image packages are outdated. Update the base image tag in the Dockerfile; the runtime stages already run `apk upgrade`. |
 | Integration test: `POST /api/scores` 400 | Payload violates validation (100–200 points per correct answer). |
 | Release job fails with "Set exactly one label" | The merged PR had no or several `release:*` labels. Add one and re-run, or create the tag and release manually. |
-| `Resource not accessible by integration` in CodeQL | The workflow needs `actions: read` (already set in `security.yml`); on a private repo CodeQL also needs Advanced Security. |
+| `Resource not accessible by integration` in CodeQL | The workflow needs `actions: read`; on a private repo CodeQL also needs Advanced Security. |
 | `CodeQL analyses from advanced configurations cannot be processed when the default setup is enabled` | Disable code scanning default setup (Step 4.6). |
 | Containers run as `amd64` on Apple Silicon | Old single-arch images; rebuild so the `:<sha>`/`:<branch>` tag is multi-arch. |
-| Backend cannot connect to the DB after changing `DB_PASSWORD` | Postgres keeps the original password in its volume. Destroy the environment (deletes data) and redeploy. |
-| `Internal server error` on a run or push | GitHub-side; retry, check githubstatus.com, and cancel or delete stuck runs for that branch. |

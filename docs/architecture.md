@@ -16,7 +16,7 @@ choices below are about getting real-world habits without real-world infrastruct
 ## The big picture
 
 ```
- pull request ──► CI           lint, types, tests, build, image scan, Terraform checks
+ pull request ──► CI           lint, types, tests, build, migration check, secrets, dependency review, image scan
               ├► Security      CodeQL, secret scan, dependency audit
               └► Release check is there a release label? (PRs into main)
 
@@ -148,13 +148,18 @@ keep the first version simple, and it is the most obvious next improvement.
 ### Checks before and after merging
 
 Before merging, pull requests run CI on only the parts they touch (a change in
-`frontend/` does not run backend tests): lint, type checks, tests with coverage, a
-production build, an image build, and a Trivy scan that fails on high or critical
-vulnerabilities. Terraform changes get formatting, validation, linting and a Checkov
-scan. A single aggregate check, `ci-ok`, summarises everything, which is the one thing
-branch protection has to require. A separate Security workflow runs CodeQL, scans for
-committed secrets and audits npm dependencies, and also runs weekly because new
-vulnerabilities appear even when your code does not change.
+`frontend/` does not run backend tests): lint with oxlint, type checks, unit tests and
+a production build. The backend tests run against a real Postgres service. When a pull
+request changes database migrations, an extra job checks that released migrations are
+not edited, then applies the new migrations and runs the previous release's tests
+against the new schema, so the old backend keeps working during a rollout. Every pull
+request is also scanned for committed secrets (gitleaks, only the commits of that pull
+request) and checked for newly introduced vulnerable dependencies (dependency review).
+Changed services get their image built and scanned with Trivy, which fails on high or
+critical vulnerabilities. A single aggregate check, `ci-ok`, summarises everything, which
+is the one thing branch protection has to require. A separate Security workflow runs
+CodeQL, a full secret scan and an npm audit on pushes and pull requests, and also weekly
+because new vulnerabilities appear even when your code does not change.
 
 After a deploy, a smoke test calls the health endpoints and the leaderboard through
 the real frontend port. On `test` there is also an integration test that submits a

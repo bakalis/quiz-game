@@ -5,9 +5,6 @@ This guide takes you from a fresh fork to three running environments
 steps in order. Each step says what to do and why. For the design rationale see
 [../docs/architecture.md](../docs/architecture.md).
 
-To just run the app locally without any CI, see the root [README](../README.md)
-(`docker compose up --build`).
-
 ## Contents
 
 1. [How it works](#how-it-works)
@@ -27,7 +24,7 @@ To just run the app locally without any CI, see the root [README](../README.md)
 ## How it works
 
 ```
-pull request ──► ci.yml            lint, typecheck, tests, build, Trivy image scan, Terraform checks
+pull request ──► ci.yml            lint, typecheck, tests, build, migration check, secrets, dependency review, Trivy
               ├► security.yml      CodeQL, gitleaks, npm audit
               └► release-check.yml (PRs into main) is a release label set?
 
@@ -49,6 +46,13 @@ push to main
 
 Each environment gets its own Docker network, three containers
 (`quiz-<env>-frontend`, `-backend`, `-db`) and a `quiz-<env>-db-data` volume.
+
+The ports in the table above (8081, 8082, 8080) are defaults, set as
+`frontend_host_port` in `infra/envs/<env>.tfvars`. Every other tunable value (container
+ports, database name and user, image names, health-check paths, bind address, restart
+policy, timeouts) is a variable in `infra/variables.tf` with a default, and can be
+overridden in the same `.tfvars` files. The MinIO ports (9000/9001) are not Terraform
+variables: they are set in the "Ensure state backend" step of `deploy.yml`.
 Terraform state for all environments lives in one MinIO container
 (`quiz-tfstate-minio`, ports 9000/9001) under `tfstate/<env>/terraform.tfstate`.
 
@@ -78,13 +82,14 @@ Everything you must do, with its purpose. Details are in the steps below.
 
 On the machine that will host everything:
 
-- **macOS with Docker Desktop**, running. This is the tested setup.
-  Linux needs changes (see [Linux](#linux)). Windows is untested (see [Windows](#windows)).
-- Free host ports: **8080, 8081, 8082** (the three apps) and **9000, 9001** (MinIO).
+- **macOS or Windows with Docker Desktop**, running. These are the tested setups.
+  See [Windows](#windows) for two things to watch. Linux needs changes (see [Linux](#linux)).
+- Free host ports: by default **8080, 8081, 8082** (the three apps, changeable in
+  `infra/envs/*.tfvars`) and **9000, 9001** (MinIO, set in `deploy.yml`).
 - `git`.
 - A GitHub account. Admin access to the fork's settings.
-- Optional, for running things by hand: Terraform >= 1.10 (`brew install terraform`).
-  CD installs its own.
+- Optional, only for tearing down (see [Stop and tear down](#stop-and-tear-down)):
+  Terraform >= 1.10 (`brew install terraform`). The pipeline installs its own.
 - Internet access (GitHub, GHCR, Docker Hub, Terraform provider registry).
 
 ## Step 1: Fork and clone
@@ -184,8 +189,7 @@ Settings → Actions → General:
 
 - **Actions permissions**: allow GitHub-created actions and the third-party ones
   used here (`dorny/paths-filter`, `docker/*`, `hashicorp/setup-terraform`,
-  `aquasecurity/trivy-action`, `gitleaks/gitleaks-action`,
-  `terraform-linters/setup-tflint`, `bridgecrewio/checkov-action`).
+  `gitleaks/gitleaks-action`).
 - **Fork pull request workflows from outside collaborators**: select
   **Require approval for all outside collaborators**.
 
@@ -215,11 +219,14 @@ Settings → Branches → add a rule for each of `dev`, `test` and `main`:
   Make the repo public or remove the `codeql` job from `security.yml`.
 - If **Default setup** for code scanning is on (Settings → Advanced Security),
   turn it off. It conflicts with the workflow.
+- The `dependencies` job in `ci.yml` (dependency review) needs the **Dependency
+  graph** enabled (Settings → Advanced Security). On a private repo it also needs
+  GitHub Advanced Security; without it, remove that job (and from `ci-ok`'s `needs`).
 
 ### 4.7 Dependabot
 
-*Purpose: weekly pull requests that update npm packages, base images, Terraform
-providers and GitHub Actions.*
+*Purpose: weekly pull requests that update npm packages, base images and GitHub
+Actions. Terraform providers are not covered.*
 
 Nothing to configure beyond `.github/dependabot.yml`, which is already in the repo
 and targets the `dev` branch. If Dependabot is off, enable it under Settings →
@@ -363,28 +370,21 @@ in `scripts/next-version.sh`.
 
 ## Operations
 
-### Run Terraform by hand
-
-For debugging. MinIO must be running (the first deploy creates it).
-
-```bash
-cd infra
-export AWS_ACCESS_KEY_ID=tfstate
-export AWS_SECRET_ACCESS_KEY=<TFSTATE_SECRET_KEY>
-terraform init -reconfigure -backend-config="key=dev/terraform.tfstate"
-terraform plan -var-file=envs/dev.tfvars \
-  -var db_password=<password> \
-  -var frontend_image=ghcr.io/<you>/<repo>/frontend:<tag> \
-  -var backend_image=ghcr.io/<you>/<repo>/backend:<tag>
-```
-
-From the host, `main.tf` reaches MinIO at `127.0.0.1:9000`. In CI the workflow
-overrides the endpoint to `host.docker.internal:9000` because the runner is itself a
-container.
-
 ### Stop and tear down
 
-Destroy each environment **while MinIO is still running** (it holds the state):
+**From GitHub:** open **Actions → Teardown → Run workflow**, pick `dev`, `test`, `prod`
+or `all`, and run it. It runs `terraform destroy` on your runner, one environment at a
+time, and `prod` still waits for its required reviewer. Tick *Also remove the MinIO state
+backend* (only with `all`) to remove MinIO and the state as well. By default the
+database volumes are **kept**, so a later deploy starts with the same data; tick
+*Also delete the database volumes* to remove them. The workflow must exist on the
+default branch (`main`) to appear in the Actions tab. The manual steps below always
+delete the volumes.
+
+**By hand:**
+
+Destroy each environment **while MinIO is still running** (it holds the state). From
+the host, Terraform reaches MinIO at `127.0.0.1:9000`:
 
 ```bash
 cd infra
@@ -409,20 +409,36 @@ To pause without destroying: `docker stop quiz-<env>-frontend quiz-<env>-backend
 
 ### Add another environment
 
-1. Add `infra/envs/<name>.tfvars` with a unique `environment` and `frontend_host_port`.
+1. Add `infra/envs/<name>.tfvars` with a unique `environment` and `frontend_host_port`, plus any other
+   variable from `infra/variables.tf` you want to override.
 2. Add the branch to the `branches` lists in `deploy.yml`, `ci.yml` and
    `security.yml`, create a matching GitHub Environment, and create the branch.
    Any branch other than `main` uses its own name as environment; `main` is `prod`.
 
 ### Windows
 
-Untested. The scripts are not the problem (they run inside Linux containers), but two
-things can break it. First, the runner needs `RUNNER_WORK_DIR` to be the same path on
-the host and in the container; with Docker Desktop on Windows, use WSL2 and keep both
-the clone and the work directory inside the WSL filesystem (e.g. `/home/<you>/...`),
-and check that a deploy's bind mounts resolve. Second, Git must not convert line
-endings: the repo ships a `.gitattributes` that forces LF for scripts, Dockerfiles and
-workflows, so clone it fresh (or run `git add --renormalize .`) after enabling it.
+Tested on Windows with Docker Desktop; the full flow works. Two things are worth knowing:
+
+> **Warning: the scripts must be marked executable in Git.** Windows has no executable
+> bit, so if you *copy* the files into a new repository (instead of forking or cloning
+> it), Git records `scripts/*.sh` as non-executable and they fail with a permission
+> error on the runner. Fork or clone to keep the flag. If you already copied them, fix
+> it with:
+>
+> ```bash
+> git update-index --chmod=+x scripts/*.sh infra/runner/entrypoint.sh
+> git commit -m "make scripts executable" && git push
+> ```
+>
+> The workflows call the scripts through `bash` as a safeguard, but keeping the flag
+> set is still correct.
+
+Line endings: Git must not convert them to CRLF, which breaks scripts inside the Linux
+containers. The repo ships a `.gitattributes` that forces LF for scripts, Dockerfiles,
+workflows and Terraform files; if you cloned before it existed, run
+`git add --renormalize .`. Also keep `RUNNER_WORK_DIR` a path that resolves the same
+on the host and in the container (see [Start the runner](#step-5-start-the-self-hosted-runner)); if
+bind mounts in a deploy look empty, this is the first thing to check.
 
 ### Linux
 
@@ -448,8 +464,6 @@ which `host-gateway` does not reach, so the MinIO port binding would need to cha
 | Trivy fails the build with HIGH/CRITICAL findings | Base image packages are outdated. Update the base image tag in the Dockerfile; the runtime stages already run `apk upgrade`. |
 | Integration test: `POST /api/scores` 400 | Payload violates validation (100–200 points per correct answer). |
 | Release job fails with "Set exactly one label" | The merged PR had no or several `release:*` labels. Add one and re-run, or create the tag and release manually. |
-| `Resource not accessible by integration` in CodeQL | The workflow needs `actions: read` (already set in `security.yml`); on a private repo CodeQL also needs Advanced Security. |
+| `Resource not accessible by integration` in CodeQL | The workflow needs `actions: read`; on a private repo CodeQL also needs Advanced Security. |
 | `CodeQL analyses from advanced configurations cannot be processed when the default setup is enabled` | Disable code scanning default setup (Step 4.6). |
 | Containers run as `amd64` on Apple Silicon | Old single-arch images; rebuild so the `:<sha>`/`:<branch>` tag is multi-arch. |
-| Backend cannot connect to the DB after changing `DB_PASSWORD` | Postgres keeps the original password in its volume. Destroy the environment (deletes data) and redeploy. |
-| `Internal server error` on a run or push | GitHub-side; retry, check githubstatus.com, and cancel or delete stuck runs for that branch. |

@@ -11,7 +11,8 @@
     "migrate": "tsx --env-file-if-exists=.env src/runMigrations.ts",
     "typecheck": "tsc",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "express": "^5.2.1",

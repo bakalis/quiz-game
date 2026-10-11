@@ -137,11 +137,11 @@ jobs:
           terraform apply -input=false tfplan
 
       - name: Smoke test
-        run: scripts/smoke-test.sh "$(terraform -chdir=infra output -raw frontend_url | sed "s/localhost/${HOST_ALIAS}/")"
+        run: bash scripts/smoke-test.sh "$(terraform -chdir=infra output -raw frontend_url | sed "s/localhost/${HOST_ALIAS}/")"
 
       - name: Integration test (test env only)
         if: env.TF_ENV == 'test'
-        run: scripts/integration-test.sh "$(terraform -chdir=infra output -raw frontend_url | sed "s/localhost/${HOST_ALIAS}/")"
+        run: bash scripts/integration-test.sh "$(terraform -chdir=infra output -raw frontend_url | sed "s/localhost/${HOST_ALIAS}/")"
 
       - name: Container logs on failure
         if: failure()

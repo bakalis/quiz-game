@@ -16,7 +16,7 @@ resource "docker_image" "this" {
 resource "docker_container" "this" {
   name    = var.name
   image   = docker_image.this.image_id
-  restart = "unless-stopped"
+  restart = var.restart
   env     = [for k, v in var.env : "${k}=${v}"]
 
   networks_advanced {
@@ -43,13 +43,13 @@ resource "docker_container" "this" {
 
   healthcheck {
     test         = var.healthcheck_cmd
-    interval     = "5s"
-    timeout      = "3s"
-    retries      = 10
-    start_period = "10s"
+    interval     = var.healthcheck_interval
+    timeout      = var.healthcheck_timeout
+    retries      = var.healthcheck_retries
+    start_period = var.healthcheck_start_period
   }
 
   # Wait until the container reports healthy so dependents start in order.
   wait         = true
-  wait_timeout = 120
+  wait_timeout = var.wait_timeout
 }
